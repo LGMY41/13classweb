@@ -4,6 +4,8 @@ let currentIndex = 0;
 let currentFilter = 'all';
 let videoThumbnails = {}; // 存储生成的视频缩略图
 let videoDurations = {}; // 存储视频时长
+let suspendBackgroundLoads = false; // 当用户点击视频时，暂停后台缩略图/元数据加载
+let ongoingVideoElements = []; // 存储正在进行的 video 元素，以便中止
 
 // 按日期排序函数
 function sortByDate(a, b) {
@@ -133,14 +135,24 @@ function renderMediaGrid(mediaItems) {
 
 // 为所有视频生成缩略图和获取时长
 function generateVideoThumbnailsAndDurations() {
+    // 清理之前的正在进行加载的 video 元素引用
+    ongoingVideoElements.forEach(v => {
+        try { v.src = ''; v.load(); } catch(e) {}
+        if (v.parentNode) v.parentNode.removeChild(v);
+    });
+    ongoingVideoElements = [];
+
     const videoItems = document.querySelectorAll('.video-item-loading');
-    
+
     videoItems.forEach((item, index) => {
+        if (suspendBackgroundLoads) return; // 如果正在播放/等待播放，则暂停后台加载
+
         const originalIndex = item.getAttribute('data-original-index');
         const videoData = currentMedia[originalIndex];
-        
+
         if (videoData.mediaType === 'video') {
-            generateVideoThumbnailAndDuration(videoData.url, item, originalIndex);
+            const v = generateVideoThumbnailAndDuration(videoData.url, item, originalIndex);
+            if (v) ongoingVideoElements.push(v);
         }
     });
 }
@@ -187,7 +199,7 @@ function generateVideoThumbnailAndDuration(videoUrl, container, originalIndex) {
             updateVideoThumbnailAndDuration(container, thumbnailUrl, duration);
             
             // 清理视频元素
-            video.remove();
+            try { video.remove(); } catch(e) {}
         });
     });
     
@@ -201,6 +213,9 @@ function generateVideoThumbnailAndDuration(videoUrl, container, originalIndex) {
             '未知'
         );
     });
+
+    // 返回 video 元素引用以便上层可以在需要时停止它
+    return video;
 }
 
 // 格式化视频时长（秒转换为分:秒）
@@ -262,6 +277,10 @@ function openModal(index) {
     const modalTitle = document.getElementById('modalTitle');
     const modalMeta = document.getElementById('modalMeta');
     const modalDescription = document.getElementById('modalDescription');
+    const modalProgress = document.getElementById('modalProgress');
+    const modalProgressFill = document.getElementById('modalProgressFill');
+    const modalProgressText = document.getElementById('modalProgressText');
+    const modalPlayButton = document.getElementById('modalPlayButton');
     
     currentIndex = index;
     const media = currentMedia[index];
@@ -273,15 +292,81 @@ function openModal(index) {
         modalImage.style.display = 'block';
         modalVideo.style.display = 'none';
         modalVideo.pause();
+        // 隐藏进度相关 UI
+        if (modalProgress) modalProgress.style.display = 'none';
     } else if (media.mediaType === 'video') {
-        modalVideo.src = media.url;
+        // 暂停后台缩略图/元数据加载，避免服务端并发请求导致卡顿
+        suspendBackgroundLoads = true;
+        // 中止正在进行的 video 元素加载
+        ongoingVideoElements.forEach(v => { try { v.src = ''; v.load(); } catch(e) {} });
+
         modalVideo.style.display = 'block';
         modalImage.style.display = 'none';
-        
+
+        // 隐藏默认控件，直到缓冲达到 50%
+        modalVideo.controls = false;
+
+        // 显示并重置进度 UI
+        if (modalProgress) {
+            modalProgress.style.display = 'block';
+            modalProgressFill.style.width = '0%';
+            modalProgressText.textContent = '缓冲: 0%';
+            modalPlayButton.disabled = true;
+        }
+
+        // 设置视频源并开始缓冲（但不播放）。先移除上一次可能的事件监听
+        modalVideo.src = media.url;
+        modalVideo.load();
+
         // 如果已经有生成的缩略图，设置为海报
         if (videoThumbnails[index]) {
             modalVideo.poster = videoThumbnails[index];
         }
+
+        // 监听元数据以获取 duration
+        function onLoadedMetadata() {
+            // 绑定 progress 事件检查缓冲范围
+            updateProgress();
+        }
+
+        function updateProgress() {
+            try {
+                const duration = modalVideo.duration;
+                if (!duration || isNaN(duration) || duration === Infinity) return;
+
+                let bufferedEnd = 0;
+                if (modalVideo.buffered && modalVideo.buffered.length) {
+                    bufferedEnd = modalVideo.buffered.end(modalVideo.buffered.length - 1);
+                }
+
+                const percent = Math.min(100, Math.round((bufferedEnd / duration) * 100));
+                if (modalProgressFill) modalProgressFill.style.width = percent + '%';
+                if (modalProgressText) modalProgressText.textContent = `缓冲: ${percent}%`;
+
+                // 当缓冲达到 50% 时允许播放
+                if (percent >= 50) {
+                    if (modalPlayButton) modalPlayButton.disabled = false;
+                    // 同时显示原生控件（可选）
+                    modalVideo.controls = true;
+                }
+            } catch (e) {
+                console.warn('updateProgress error', e);
+            }
+        }
+
+        // 进度与可播放事件监听
+        modalVideo.removeEventListener('loadedmetadata', onLoadedMetadata);
+        modalVideo.addEventListener('loadedmetadata', onLoadedMetadata);
+        modalVideo.addEventListener('progress', updateProgress);
+
+        // play button 点击后开始播放（并继续缓冲剩余部分）
+        const startPlay = () => {
+            try { modalVideo.play(); } catch (e) { console.warn('play failed', e); }
+            // 在播放时可以继续让浏览器缓存剩余数据，后台加载仍保持暂停状态以优先视频
+        };
+
+        modalPlayButton.removeEventListener('click', startPlay);
+        modalPlayButton.addEventListener('click', startPlay);
     }
     
     // 设置模态框信息
@@ -319,11 +404,27 @@ function openModal(index) {
 function closeModal() {
     const modal = document.getElementById('mediaModal');
     const modalVideo = document.getElementById('modalVideo');
+    const modalProgress = document.getElementById('modalProgress');
+    const modalPlayButton = document.getElementById('modalPlayButton');
     
     // 暂停视频播放
     modalVideo.pause();
     
     modal.style.display = 'none';
+
+    // 恢复后台加载行为
+    suspendBackgroundLoads = false;
+    // 清理 modalVideo 源以释放内存
+    try { modalVideo.removeAttribute('src'); modalVideo.load(); } catch(e) {}
+
+    // 隐藏并重置进度 UI
+    if (modalProgress) {
+        modalProgress.style.display = 'none';
+        if (modalPlayButton) modalPlayButton.disabled = true;
+    }
+
+    // 重新触发后台缩略图/时长生成（如果需要）
+    generateVideoThumbnailsAndDurations();
 }
 
 // 显示上一个媒体
@@ -434,8 +535,4 @@ document.addEventListener('DOMContentLoaded', function() {
     loadMedia();
     initFilterButtons();
     initModalEvents();
-
 });
-
-
-
