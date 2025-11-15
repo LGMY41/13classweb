@@ -1077,17 +1077,3 @@ a:focus,button:focus,input:focus,textarea:focus{outline:3px solid rgba(74,144,22
     #modalImage, #modalVideo{max-height: calc(100vh - 140px)}
 }
 
-/* --------------------------------------------------------------- */
-
-/* 模态视频缓冲进度条样式 */
-#modalProgress { text-align: center; }
-#modalProgress .progress-bar { background:#e9ecef; border-radius:8px; height:12px; overflow:hidden; display:inline-block; vertical-align:middle; }
-#modalProgressFill { height:100%; width:0%; background: linear-gradient(90deg,#1e4d8c,#4a90e2); transition: width 0.25s ease; }
-#modalProgressText { margin-top:6px; display:block; color:#fff; }
-#modalPlayButton { transition:background .15s,transform .08s; }
-#modalPlayButton:disabled { opacity:0.6; cursor:not-allowed; }
-
-@media (max-width:768px){
-    #modalProgress .progress-bar{max-width:90%;}
-    #modalProgressText{font-size:0.85rem}
-}
