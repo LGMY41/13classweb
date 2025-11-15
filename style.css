@@ -1032,3 +1032,62 @@ a:focus,button:focus,input:focus,textarea:focus{outline:3px solid rgba(74,144,22
     .photo-grid,.media-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 }
 
+/* --------- 修复：模态框内媒体过大导致控件不可点按的问题 --------- */
+/* 限制模态内图片/视频最大尺寸，使其在各种分辨率下都能完整显示并且控件可点击 */
+.modal-media-container{
+    /* 允许在媒体过大时滚动以访问底部控件 */
+    overflow:auto;
+    padding:10px 20px; /* 保留内边距，避免内容紧贴边缘 */
+    -webkit-overflow-scrolling:touch;
+}
+
+/* 对模态内的图片和视频设置可控的最大宽高，保证控件始终在视口内 */
+#modalImage, #modalVideo {
+    display:block;
+    margin:0 auto;
+    width:auto;
+    height:auto;
+    max-width: calc(100% - 40px); /* 减去容器内边距，避免水平溢出 */
+    max-height: calc(100vh - 220px); /* 保证顶部标题/底部信息及控件有足够空间 */
+    object-fit: contain;
+    box-sizing: border-box;
+}
+
+/* 当视口高度较小时，进一步收紧最大高度，确保控件始终可见 */
+@media (max-height:600px){
+    #modalImage, #modalVideo {
+        max-height: calc(100vh - 160px);
+    }
+}
+
+/* 确保视频本身为块级元素并可响应点击（避免被覆盖层阻挡） */
+#modalVideo {
+    z-index: 1000;
+    position: relative;
+    background: #000;
+}
+
+/* 避免模态导航遮挡视频控件（导航整体不捕获指针，仅按钮可交互） */
+.modal-nav{pointer-events:none}
+.modal-nav .nav-btn{pointer-events:auto}
+
+/* 小屏幕优化：缩小侧边留白，增加媒体可用高度 */
+@media (max-width:768px){
+    .modal-media-container{padding:8px}
+    #modalImage, #modalVideo{max-height: calc(100vh - 140px)}
+}
+
+/* --------------------------------------------------------------- */
+
+/* 模态视频缓冲进度条样式 */
+#modalProgress { text-align: center; }
+#modalProgress .progress-bar { background:#e9ecef; border-radius:8px; height:12px; overflow:hidden; display:inline-block; vertical-align:middle; }
+#modalProgressFill { height:100%; width:0%; background: linear-gradient(90deg,#1e4d8c,#4a90e2); transition: width 0.25s ease; }
+#modalProgressText { margin-top:6px; display:block; color:#fff; }
+#modalPlayButton { transition:background .15s,transform .08s; }
+#modalPlayButton:disabled { opacity:0.6; cursor:not-allowed; }
+
+@media (max-width:768px){
+    #modalProgress .progress-bar{max-width:90%;}
+    #modalProgressText{font-size:0.85rem}
+}
